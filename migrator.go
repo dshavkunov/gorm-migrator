@@ -10,12 +10,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	validateDownMode = "validate"
-	upErrDownMode    = "up"
-	storeErrDownMode = "store"
-)
-
 type Migration struct {
 	Up   func(migrator gorm.Migrator) error
 	Down func(migrator gorm.Migrator) error
@@ -66,8 +60,8 @@ func (m *migrator) validateNewMigrations() error {
 	if err != nil {
 		return helpers.WrapError(err, "validation error")
 	}
-	if err := m.down(newIndexes, validateDownMode); err != nil {
-		return err
+	if err := m.down(newIndexes); err != nil {
+		return helpers.WrapError(err, "validation error")
 	}
 	return nil
 }
@@ -91,16 +85,13 @@ func (m *migrator) up() ([]int, error) {
 		mRecord = &models.Migration{}
 		newMigrationIndexes = append(newMigrationIndexes, i)
 		if err := mgrt.Up(m.migrator); err != nil {
-			if downErr := m.down(newMigrationIndexes, upErrDownMode); downErr != nil {
+			if downErr := m.down(newMigrationIndexes); downErr != nil {
 				m.logger.Errorf("migration down error: %v", err)
 			}
 			return nil, err
 		}
 		mRecord.Name = migrationName
 		if err := m.migrationRepo.Store(mRecord); err != nil {
-			if downErr := m.down(newMigrationIndexes, storeErrDownMode); downErr != nil {
-				m.logger.Errorf("migration down error: %v", err)
-			}
 			return nil, err
 		}
 	}
@@ -108,18 +99,12 @@ func (m *migrator) up() ([]int, error) {
 }
 
 // down rollbacks migrations.
-func (m *migrator) down(newMigrationIndexes []int, mode string) error {
+func (m *migrator) down(newMigrationIndexes []int) error {
 	count := len(newMigrationIndexes)
 	for i := count - 1; i >= 0; i-- {
 		mgrt := m.allMigrations[newMigrationIndexes[i]]
-		if i == count-1 && mode == upErrDownMode {
-			continue
-		}
 		if err := mgrt.Down(m.migrator); err != nil {
 			return err
-		}
-		if i == count-1 && mode == storeErrDownMode {
-			continue
 		}
 		migrationName, err := helpers.GetFunctionName(mgrt.Up)
 		if err != nil {
